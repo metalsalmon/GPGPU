@@ -1,36 +1,18 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <iostream>
 #include <chrono>
 #include <opencv2/opencv.hpp>
-#include<opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
 
 using namespace std;
 int const OUT = 10000;
 int const IN = 100000;
 
-
-static inline void _safe_cuda_call(cudaError err, const char* msg, const char* file_name, const int line_number)
-{
-	if (err != cudaSuccess)
-	{
-		fprintf(stderr, "%s\n\nFile: %s\n\nLine Number: %d\n\nReason: %s\n", msg, file_name, line_number, cudaGetErrorString(err));
-		std::cin.get();
-		exit(EXIT_FAILURE);
-	}
-}
-
-#define SAFE_CALL(call,msg) _safe_cuda_call((call),(msg),__FILE__,__LINE__)
-
-__global__ void initkernel()
-{
-}
+__global__ void initkernel(){}
 
 void floatCPU()
 {
@@ -67,17 +49,17 @@ void floatGPU()
 
 void floatcomputing()
 {
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = chrono::high_resolution_clock::now();
 	floatGPU();
-	auto finish = std::chrono::high_resolution_clock::now();
-	chrono::duration<double> elapsed = finish - start;
-	std::cout << "GPU time: " << elapsed.count() << " s\n";
+	auto finish = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finish - start;
+	std::cout << "GPU time: " << duration.count() << " s\n";
 
-	start = std::chrono::high_resolution_clock::now();
+	start = chrono::high_resolution_clock::now();
 	floatCPU();
-	finish = std::chrono::high_resolution_clock::now();
-	elapsed = finish - start;
-	cout << "CPU time: " << elapsed.count() << " s\n";
+	finish = chrono::high_resolution_clock::now();
+	duration = finish - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 }
 
 void RunCPU(int size)
@@ -115,15 +97,29 @@ __global__ void GPUadd(int* input1, int* input2, int* result, int size)
 
 void RunGPU(int size)
 {
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+
 	int* input1 = (int*)malloc(sizeof(int) * size);
 	int* input2 = (int*)malloc(sizeof(int) * size);
 	int* result = (int*)malloc(sizeof(int) * size);
 
 	int* dev_input1, * dev_input2, * dev_result;
 
+	cudaEventRecord(start);
+
 	cudaMalloc(&dev_input1, sizeof(int) * size);
 	cudaMalloc(&dev_input2, sizeof(int) * size);
 	cudaMalloc(&dev_result, sizeof(int) * size);
+	
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+
+	cout << "malloc: " << milliseconds/1000 << " s\n";
 
 	for (int i = 0; i < size; i++)
 	{
@@ -135,13 +131,27 @@ void RunGPU(int size)
 	int block_size = 1024;
 	int grid_size = (int)ceil((float)size / block_size);
 
+	
+	cudaEventRecord(start);
 	cudaMemcpy(dev_input1, input1, sizeof(int) * size, cudaMemcpyHostToDevice);
 	cudaMemcpy(dev_input2, input2, sizeof(int) * size, cudaMemcpyHostToDevice);
 
-	GPUadd << <grid_size, block_size >> > (dev_input1, dev_input2, dev_result, size);
-	cudaDeviceSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	 milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
 
-	cudaMemcpy(result, dev_result, sizeof(int) * size, cudaMemcpyDeviceToHost);
+	cout << "memcpy: " << milliseconds/1000 << " s\n";
+
+	cudaEventRecord(start);
+	GPUadd << <grid_size, block_size >> > (dev_input1, dev_input2, dev_result, size);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+
+	cout << "kernel: " << milliseconds/1000 << " s\n";
+	
 
 	free(input1);
 	free(input2);
@@ -155,18 +165,18 @@ void RunGPU(int size)
 void memory_copy(int size)
 {
 
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = chrono::high_resolution_clock::now();
 	RunGPU(size);
-	auto finish = std::chrono::high_resolution_clock::now();
-	chrono::duration<double> elapsed = finish - start;
-	cout << "GPU time: " << elapsed.count() << " s\n";
+	auto finish = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finish - start;
+	cout << "GPU time: " << duration.count() << " s\n";
 
 
-	start = std::chrono::high_resolution_clock::now();
+	start = chrono::high_resolution_clock::now();
 	RunCPU(size);
-	finish = std::chrono::high_resolution_clock::now();
-	elapsed = finish - start;
-	cout << "CPU time: " << elapsed.count() << " s\n";
+	finish = chrono::high_resolution_clock::now();
+	duration = finish - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 }
 
 __global__ void matrix_kernel(int* m, int* n, int* result, int size)
@@ -221,7 +231,7 @@ void Matrix_mul(int size)
 	dim3 block_size(threads_max, threads_max);
 	dim3 grid_size(size / block_size.x, size / block_size.y);
 
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = chrono::high_resolution_clock::now();
 	cudaMalloc(&dev_matrix1atrix2, bytes);
 	cudaMalloc(&dev_matrix1, bytes);
 	cudaMalloc(&dev_result, bytes);
@@ -230,15 +240,15 @@ void Matrix_mul(int size)
 	matrix_kernel << <1, 1024 >> > (dev_matrix1, dev_matrix1atrix2, dev_result, size);
 	cudaDeviceSynchronize();
 	cudaMemcpy(host_result, dev_result, bytes, cudaMemcpyDeviceToHost);
-	auto finish = std::chrono::high_resolution_clock::now();
-	chrono::duration<double> elapsed = finish - start;
-	cout << "GPU time: " << elapsed.count() << " s\n";
+	auto finish = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finish - start;
+	cout << "GPU time: " << duration.count() << " s\n";
 
-	start = std::chrono::high_resolution_clock::now();
+	start = chrono::high_resolution_clock::now();
 	matrix_cpu(host_m, host_n, cpu_result, size);
-	finish = std::chrono::high_resolution_clock::now();
-	elapsed = finish - start;
-	cout << "CPU time: " << elapsed.count() << " s\n";
+	finish = chrono::high_resolution_clock::now();
+	duration = finish - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 
 
 	printf("%d %d\n", host_result[1], cpu_result[1]);
@@ -268,12 +278,6 @@ void Matrix_mul(int size)
 
 __global__ void fibonaci_kernel(int size)
 {
-	//int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	//if (tid) // vypnut
-	//{
-	//	
-	//}
-
 	for (int i = 0; 1000000 < 0; i++)
 	{
 
@@ -318,134 +322,131 @@ void fibonaciCPU(int size)
 
 void fibonaci(int size)
 {
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = chrono::high_resolution_clock::now();
 	fibonaciCPU(size);
-	auto finish = std::chrono::high_resolution_clock::now();
-	chrono::duration<double> elapsed = finish - start;
-	cout << "CPU time: " << elapsed.count() << " s\n";
+	auto finish = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finish - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 
-	start = std::chrono::high_resolution_clock::now();
+	start = chrono::high_resolution_clock::now();
 	fibonaciGPU(size);
-	finish = std::chrono::high_resolution_clock::now();
-	elapsed = finish - start;
-	cout << "GPU time: " << elapsed.count() << " s\n";
+	finish = chrono::high_resolution_clock::now();
+	duration = finish - start;
+	cout << "GPU time: " << duration.count() << " s\n";
 
 
 }
 
-__global__ void Image_kernel(int* m, int* n, int* result, int size)
+__global__ void black_white_kernel(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows)
 {
-	int column = blockIdx.x * blockDim.x + threadIdx.x;
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
-	int result_sum = 0;
-
-	for (int i = 0; i < size; i++)
+	int column = blockIdx.x * blockDim.x + threadIdx.x;
+	for (int i = 0; i < 100; i++)
 	{
-		result_sum += m[row * size + i] * n[i * size + column];
-	}
+		if ((row < input_rows) && (column < input_columns))
+		{
+			int tid_input = row * input_row_length + (column * 3);
+			int tid_output = row * output_row_length + column;
 
-	result[row * size + column] = result_sum;
-}
+			float black_white = (input[tid_input + 2] + input[tid_input + 1] + input[tid_input]) / 3;	//RGB
 
-__global__ void bgr_to_gray_kernel(unsigned char* input,
-	unsigned char* output,
-	int width,
-	int height,
-	int colorWidthStep,
-	int grayWidthStep)
-{
-	//2D Index of current thread
-	const int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
-	const int yIndex = blockIdx.y * blockDim.y + threadIdx.y;
-
-	//Only valid threads perform memory I/O
-	if ((xIndex < width) && (yIndex < height))
-	{
-		//Location of colored pixel in input
-		const int color_tid = yIndex * colorWidthStep + (3 * xIndex);
-
-		//Location of gray pixel in output
-		const int gray_tid = yIndex * grayWidthStep + xIndex;
-
-		const unsigned char blue = input[color_tid];
-		const unsigned char green = input[color_tid + 1];
-		const unsigned char red = input[color_tid + 2];
-
-		const float gray = red * 0.3f + green * 0.59f + blue * 0.11f;
-
-		output[gray_tid] = static_cast<unsigned char>(gray);
+			output[tid_output] = static_cast<unsigned char>(black_white);
+		}
 	}
 }
 
-void convert_to_gray(const cv::Mat& input, cv::Mat& output)
+void ImageGPU(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows, int output_width, cudaEvent_t start, cudaEvent_t stop)
 {
-	//Calculate total number of bytes of input and output image
-	const int colorBytes = input.step * input.rows;
-	const int grayBytes = output.step * output.rows;
+	unsigned char* dev_input, * dev_output;
+	
+	cudaEventRecord(start);
+	cudaMalloc<unsigned char>(&dev_input, input_row_length * input_rows);
+	cudaMalloc<unsigned char>(&dev_output, output_row_length * output_width);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
 
-	unsigned char* d_input, * d_output;
-
-	//Allocate device memory
-	SAFE_CALL(cudaMalloc<unsigned char>(&d_input, colorBytes), "CUDA Malloc Failed");
-	SAFE_CALL(cudaMalloc<unsigned char>(&d_output, grayBytes), "CUDA Malloc Failed");
-
-	//Copy data from OpenCV input image to device memory
-	SAFE_CALL(cudaMemcpy(d_input, input.ptr(), colorBytes, cudaMemcpyHostToDevice), "CUDA Memcpy Host To Device Failed");
+	cout << "malloc: " << milliseconds << " s\n";
+	cudaMemcpy(dev_input, input, input_row_length * input_rows, cudaMemcpyHostToDevice);
 
 	//Specify a reasonable block size
 	const dim3 block(16, 16);
 
 	//Calculate grid size to cover the whole image
-	const dim3 grid((input.cols + block.x - 1) / block.x, (input.rows + block.y - 1) / block.y);
+	const dim3 grid((input_columns + block.x - 1) / block.x, (input_rows + block.y - 1) / block.y);
 
-	//Launch the color conversion kernel
-	bgr_to_gray_kernel << <grid, block >> > (d_input, d_output, input.cols, input.rows, input.step, output.step);
+	//auto start = chrono::high_resolution_clock::now();
+	black_white_kernel<<<grid, block >>> (dev_input, dev_output, input_row_length, output_row_length, input_columns, input_rows);
+	cudaDeviceSynchronize();
+	//auto finish = chrono::high_resolution_clock::now();
+	//chrono::duration<double> duration = finish - start;
+	//cout << "GPU kernel: " << duration.count() << " s\n";
+	cudaEventRecord(start);
+	cudaMemcpy(output, dev_output, output_row_length * output_width, cudaMemcpyDeviceToHost);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	milliseconds = 0;
 
-	//Synchronize to check for any kernel launch errors
-	SAFE_CALL(cudaDeviceSynchronize(), "Kernel Launch Failed");
-
-	//Copy back data from destination device meory to OpenCV output image
-	SAFE_CALL(cudaMemcpy(output.ptr(), d_output, grayBytes, cudaMemcpyDeviceToHost), "CUDA Memcpy Host To Device Failed");
-
-	//Free the device memory
-	SAFE_CALL(cudaFree(d_input), "CUDA Free Failed");
-	SAFE_CALL(cudaFree(d_output), "CUDA Free Failed");
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	
+	cout << "omg: " << milliseconds << " s\n";
+	cudaFree(dev_input);
+	cudaFree(dev_output);
+	
+	
 }
 
 
-void processImageCPU() {
+void ImageCPU(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows)
+{
+	for(int k = 0 ; k < 100 ; k++)
+		for(int i = 0; i < input_rows; i++)
+			for (int j = 0; j < input_columns; j++)
+			{
+				int input_position = i* input_row_length + (3 * j);
+				int output_position = i * output_row_length + j;
 
+				float black_white = (input[input_position + 2] + input[input_position + 1] + input[input_position])/3;  //RGB
+
+				output[output_position] = static_cast<unsigned char>(black_white);
+
+			}
 }
 
 void processImage()
 {
-
-	std::string imagePath = "C:/Users/sninc/Desktop/image.jpg";
-
-	//Read input image from the disk
-	cv::Mat input = cv::imread(imagePath);
+	cv::Mat input = cv::imread("image.jpg");
+	cudaEvent_t start_cuda, stop_cuda;
+	cudaEventCreate(&start_cuda);
+	cudaEventCreate(&stop_cuda);
 
 	if (input.empty())
 	{
-		std::cout << "Image Not Found!" << std::endl;
-		std::cin.get();
+		cout << "Obrazok sa musi volat image.jpg a byt v rovnakom priecinku ako exe subor" << std::endl;
 		return;
 	}
 
-	//Create output image
 	cv::Mat output(input.rows, input.cols, CV_8UC1);
 
-	//Call the wrapper function
-	convert_to_gray(input, output);
+	auto start = chrono::high_resolution_clock::now();
+	ImageCPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows);
+	auto finish = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finish - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 
-	//Show the input and output
-	cv::imshow("Input", input);
-	cv::imshow("Output", output);
+	start = chrono::high_resolution_clock::now();
+	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, start_cuda, stop_cuda);
+	finish = chrono::high_resolution_clock::now();
+	duration = finish - start;
+	cout << "GPU time: " << duration.count() << " s\n";
 
-	//Wait for key press
+
+	cv::imshow("original", input);
+	cv::imshow("processed", output);
+
+
 	cv::waitKey();
-
-	processImageCPU();
 
 }
 

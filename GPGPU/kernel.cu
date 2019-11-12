@@ -18,7 +18,7 @@ __global__ void kernelInit(){}
 
 void printTime()
 {
-	cout << "GPU malloc: " << timeCudaMalloc / 1000 << " s\n"
+	cout << "GPU malloc: " << timeCudaMalloc << " s\n"
 		<< "memory copy to GPU: " << timeCudaMemcpyh2d / 1000 << " s\n"
 		<< "memory copy from GPU: " << timeCudaMemcpyd2h / 1000 << " s\n"
 		<< "kernel: " << timeKernel / 1000 << " s\n";
@@ -94,15 +94,17 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 {
 	int* devArr1, * devArr2, * devResult;
 
-	cudaEventRecord(startCuda);
+
+	auto startMal = chrono::high_resolution_clock::now();
 
 	cudaMalloc(&devArr1, sizeof(int) * size);
 	cudaMalloc(&devArr2, sizeof(int) * size);
 	cudaMalloc(&devResult, sizeof(int) * size);
-	
-	cudaEventRecord(stopCuda);
-	cudaEventSynchronize(stopCuda);
-	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
+
+	cudaDeviceSynchronize();
+	auto finishMal = chrono::high_resolution_clock::now();
+	chrono::duration<double> duration = finishMal - startMal;
+	timeCudaMalloc = duration.count();
 
 	int blockSize = 1024;
 	int gridSize = (int)ceil((float)size / blockSize);
@@ -218,16 +220,14 @@ void MatrixMultiplication(int size)
 	int threadsMax = 16;
 	dim3 blockSize(threadsMax, threadsMax);
 	dim3 gridSize(size / blockSize.x, size / blockSize.y);
+
+	auto startMal = chrono::high_resolution_clock::now();
 	cudaMalloc(&devMatrix2, allocSize);
 	cudaMalloc(&devMatrix1, allocSize);
-	cudaEventRecord(startCuda);
-
-	
 	cudaMalloc(&devResult, allocSize);
-
-	cudaEventRecord(stopCuda);
-	cudaEventSynchronize(stopCuda);
-	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
+	cudaDeviceSynchronize();
+	auto finishMal = chrono::high_resolution_clock::now();
+	chrono::duration<double> timeCudaMalloc = finishMal - startMal;
 
 	cudaEventRecord(startCuda);
 	cudaMemcpy(devMatrix2, hostMatrix2, allocSize, cudaMemcpyHostToDevice);
@@ -262,7 +262,7 @@ void MatrixMultiplication(int size)
 
 
 	printf("%d %d\n", hostResult[1], cpuResult[1]);
-
+	bool exit;
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
@@ -270,7 +270,7 @@ void MatrixMultiplication(int size)
 			if (cpuResult[size * i + j] != hostResult[size * i + j])
 			{
 				printf("Chybne vypocitana matica!\n");
-				bool exit = true;
+				exit = true;
 				break;
 			}
 		}
@@ -488,7 +488,7 @@ int main()
 	cout << "1 -matrix multiplication\n2 -memory copy\n3 -float operations\n4 -fibonaci\n5 -image\n9 -exit" << endl;
 
 	//kernelInit << <1, 1024 >> > ();
-	cudaDeviceSynchronize();
+	//cudaDeviceSynchronize();
 	char input;
 	while (true)
 	{

@@ -11,8 +11,18 @@
 using namespace std;
 int const OUT = 10000;
 int const IN = 100000;
+cudaEvent_t startCuda, stopCuda;
+float timeCudaMalloc, timeCudaMemcpyh2d, timeKernel, timeCudaMemcpyd2h;
 
-__global__ void initkernel(){}
+__global__ void kernelInit(){}
+
+void printTime()
+{
+	cout << "GPU malloc: " << timeCudaMalloc / 1000 << " s\n"
+		<< "memory copy to GPU: " << timeCudaMemcpyh2d / 1000 << " s\n"
+		<< "memory copy from GPU: " << timeCudaMemcpyd2h / 1000 << " s\n"
+		<< "kernel: " << timeKernel / 1000 << " s\n";
+}
 
 void floatCPU()
 {
@@ -27,7 +37,7 @@ void floatCPU()
 }
 
 
-__global__ void floatkernel(float* buf)
+__global__ void floatKernel(float* buf)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	buf[i] = 1.0f * i / OUT;
@@ -38,22 +48,22 @@ void floatGPU()
 {
 	int count = 0;
 	float* data = (float*)malloc(sizeof(float) * OUT);
-	float* d_data;
-	cudaMalloc(&d_data, OUT * sizeof(float));
-	floatkernel << <OUT / 1024, 1024 >> > (d_data);
+	float* devData;
+	cudaMalloc(&devData, OUT * sizeof(float));
+	floatKernel << <OUT / 1024, 1024 >> > (devData);
 	cudaDeviceSynchronize();
-	cudaMemcpy(data, d_data, OUT * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaFree(d_data);
+	cudaMemcpy(data, devData, OUT * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaFree(devData);
 }
 
 
-void floatcomputing()
+void floatComputing()
 {
 	auto start = chrono::high_resolution_clock::now();
 	floatGPU();
 	auto finish = chrono::high_resolution_clock::now();
 	chrono::duration<double> duration = finish - start;
-	std::cout << "GPU time: " << duration.count() << " s\n";
+	cout << "GPU time: " << duration.count() << " s\n";
 
 	start = chrono::high_resolution_clock::now();
 	floatCPU();
@@ -62,202 +72,192 @@ void floatcomputing()
 	cout << "CPU time: " << duration.count() << " s\n";
 }
 
-void RunCPU(int size)
+void arrAddCPU(int size, int* arr1, int* arr2, int* result)
 {
-	int* input1 = (int*)malloc(sizeof(int) * size);
-	int* input2 = (int*)malloc(sizeof(int) * size);
-	int* result = (int*)malloc(sizeof(int) * size);
-
 	for (int i = 0; i < size; i++)
 	{
-		input1[i] = i;
-		input2[i] = i;
-		result[i] = 0;
+		result[i] = arr1[i] + arr2[i];
 	}
-
-	for (int i = 0; i < size; i++)
-	{
-		result[i] = input1[i] + input2[i];
-	}
-
-	free(input1);
-	free(input2);
-	free(result);
 }
 
-__global__ void GPUadd(int* input1, int* input2, int* result, int size)
+__global__ void arrAddKernel(int* arr1, int* arr2, int* result, int size)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < size) // vypnut
+	if (tid < size)
 	{
-		result[tid] = input1[tid] + input2[tid];
+		result[tid] = arr1[tid] + arr2[tid];
 	}
 }
 
 
-void RunGPU(int size)
+void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 {
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
+	int* devArr1, * devArr2, * devResult;
 
+	cudaEventRecord(startCuda);
 
-	int* input1 = (int*)malloc(sizeof(int) * size);
-	int* input2 = (int*)malloc(sizeof(int) * size);
-	int* result = (int*)malloc(sizeof(int) * size);
-
-	int* dev_input1, * dev_input2, * dev_result;
-
-	cudaEventRecord(start);
-
-	cudaMalloc(&dev_input1, sizeof(int) * size);
-	cudaMalloc(&dev_input2, sizeof(int) * size);
-	cudaMalloc(&dev_result, sizeof(int) * size);
+	cudaMalloc(&devArr1, sizeof(int) * size);
+	cudaMalloc(&devArr2, sizeof(int) * size);
+	cudaMalloc(&devResult, sizeof(int) * size);
 	
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	float milliseconds = 0;
-	cudaEventElapsedTime(&milliseconds, start, stop);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
 
-	cout << "malloc: " << milliseconds/1000 << " s\n";
+	int blockSize = 1024;
+	int gridSize = (int)ceil((float)size / blockSize);
+
+	
+	cudaEventRecord(startCuda);
+	cudaMemcpy(devArr1, arr1, sizeof(int) * size, cudaMemcpyHostToDevice);
+	cudaMemcpy(devArr2, arr2, sizeof(int) * size, cudaMemcpyHostToDevice);
+
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
+
+	cudaEventRecord(startCuda);
+	arrAddKernel << <gridSize, blockSize >> > (devArr1, devArr2, devResult, size);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
+
+	cudaEventRecord(startCuda);
+	cudaMemcpy(result, devResult, sizeof(int) * size, cudaMemcpyDeviceToHost);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyd2h, startCuda, stopCuda);
+
+	cudaFree(devArr1);
+	cudaFree(devArr2);
+	cudaFree(devResult);
+}
+
+void memoryCopy(int size)
+{
+	int* arr1 = (int*)malloc(sizeof(int) * size);
+	int* arr2 = (int*)malloc(sizeof(int) * size);
+	int* result = (int*)malloc(sizeof(int) * size);
 
 	for (int i = 0; i < size; i++)
 	{
-		input1[i] = i;
-		input2[i] = i;
+		arr1[i] = i;
+		arr2[i] = i;
 		result[i] = 0;
 	}
 
-	int block_size = 1024;
-	int grid_size = (int)ceil((float)size / block_size);
-
-	
-	cudaEventRecord(start);
-	cudaMemcpy(dev_input1, input1, sizeof(int) * size, cudaMemcpyHostToDevice);
-	cudaMemcpy(dev_input2, input2, sizeof(int) * size, cudaMemcpyHostToDevice);
-
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	 milliseconds = 0;
-	cudaEventElapsedTime(&milliseconds, start, stop);
-
-	cout << "memcpy: " << milliseconds/1000 << " s\n";
-
-	cudaEventRecord(start);
-	GPUadd << <grid_size, block_size >> > (dev_input1, dev_input2, dev_result, size);
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	milliseconds = 0;
-	cudaEventElapsedTime(&milliseconds, start, stop);
-
-	cout << "kernel: " << milliseconds/1000 << " s\n";
-	
-
-	free(input1);
-	free(input2);
-	free(result);
-
-	cudaFree(dev_input1);
-	cudaFree(dev_input2);
-	cudaFree(dev_result);
-}
-
-void memory_copy(int size)
-{
-
 	auto start = chrono::high_resolution_clock::now();
-	RunGPU(size);
+	arrAddGPU(size, arr1, arr2, result);
 	auto finish = chrono::high_resolution_clock::now();
 	chrono::duration<double> duration = finish - start;
 	cout << "GPU time: " << duration.count() << " s\n";
-
+	
+	for (int i = 0; i < size; i++) result[i] = 0;
 
 	start = chrono::high_resolution_clock::now();
-	RunCPU(size);
+	arrAddCPU(size, arr1, arr2, result);
 	finish = chrono::high_resolution_clock::now();
 	duration = finish - start;
 	cout << "CPU time: " << duration.count() << " s\n";
+
+	printTime();
+	free(arr1);
+	free(arr2);
+	free(result);
 }
 
-__global__ void matrix_kernel(int* m, int* n, int* result, int size)
+__global__ void matrixKernel(int* matrix1, int* matrix2, int* arrResult, int size)
 {
 	int column = blockIdx.x * blockDim.x + threadIdx.x;
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
-	int result_sum = 0;
+	int result = 0;
 
 	for (int i = 0; i < size; i++)
 	{
-		result_sum += m[row * size + i] * n[i * size + column];
+		result += matrix1[row * size + i] * matrix2[i * size + column];
 	}
 
-	result[row * size + column] = result_sum;
+	arrResult[row * size + column] = result;
 }
 
 
-void matrix_cpu(int* m, int* n, int* result, int size)
+void matrixCPU(int* matrix1, int* matrix2, int* result, int size)
 {
 	for (int i = 0; i < size; i++)
 		for (int j = 0; j < size; j++)
 			for (int k = 0; k < size; k++)
 			{
-				result[i * size + j] += m[i * size + k] * n[k * size + j];
+				result[i * size + j] += matrix1[i * size + k] * matrix2[k * size + j];
 			}
 }
-void Matrix_mul(int size)
+void MatrixMultiplicationn(int size)
 {
-	int bytes = size * size * sizeof(int);
+	int allocSize = size * size * sizeof(int);
 
-	int* host_m = (int*)malloc(bytes);
-	int* host_n = (int*)malloc(bytes);
-	int* host_result = (int*)malloc(bytes);
-	int* cpu_result = (int*)malloc(bytes);
+	int* hostMatrix1 = (int*)malloc(allocSize);
+	int* hostMatrix2 = (int*)malloc(allocSize);
+	int* hostResult = (int*)malloc(allocSize);
+	int* cpuResult = (int*)malloc(allocSize);
 
-	int* dev_matrix1, * dev_matrix1atrix2, * dev_result;
+	int* devMatrix1, * devMatrix2, * devResult;
 
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
 		{
-			//host_m[i * size + j] = rand() % 1024;
-			//host_n[i * size + j] = rand() % 1024;
-			host_m[i * size + j] = 5;
-			host_n[i * size + j] = 5;
-			cpu_result[i * size + j] = 0;
+			//hostMatrix1[i * size + j] = rand() % 1024;
+			//hostMatrix2[i * size + j] = rand() % 1024;
+			hostMatrix1[i * size + j] = 5;
+			hostMatrix2[i * size + j] = 5;
+			cpuResult[i * size + j] = 0;
 		}
 	}
-
-
-	int threads_max = 16;
-	dim3 block_size(threads_max, threads_max);
-	dim3 grid_size(size / block_size.x, size / block_size.y);
-
 	auto start = chrono::high_resolution_clock::now();
-	cudaMalloc(&dev_matrix1atrix2, bytes);
-	cudaMalloc(&dev_matrix1, bytes);
-	cudaMalloc(&dev_result, bytes);
-	cudaMemcpy(dev_matrix1atrix2, host_n, bytes, cudaMemcpyHostToDevice);
-	cudaMemcpy(dev_matrix1, host_m, bytes, cudaMemcpyHostToDevice);
-	matrix_kernel << <1, 1024 >> > (dev_matrix1, dev_matrix1atrix2, dev_result, size);
+
+
+	int threadsMax = 16;
+	dim3 blockSize(threadsMax, threadsMax);
+	dim3 gridSize(size / blockSize.x, size / blockSize.y);
+	
+	cudaEventRecord(startCuda);
+
+	cudaMalloc(&devMatrix2, allocSize);
+	cudaMalloc(&devMatrix1, allocSize);
+	cudaMalloc(&devResult, allocSize);
+
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
+
+	cudaEventRecord(startCuda);
+	cudaMemcpy(devMatrix2, hostMatrix2, allocSize, cudaMemcpyHostToDevice);
+	cudaMemcpy(devMatrix1, hostMatrix1, allocSize, cudaMemcpyHostToDevice);
+
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
+
+	matrixKernel << <1, 1024 >> > (devMatrix1, devMatrix2, devResult, size);
 	cudaDeviceSynchronize();
-	cudaMemcpy(host_result, dev_result, bytes, cudaMemcpyDeviceToHost);
+	cudaMemcpy(hostResult, devResult, allocSize, cudaMemcpyDeviceToHost);
 	auto finish = chrono::high_resolution_clock::now();
 	chrono::duration<double> duration = finish - start;
 	cout << "GPU time: " << duration.count() << " s\n";
 
 	start = chrono::high_resolution_clock::now();
-	matrix_cpu(host_m, host_n, cpu_result, size);
+	matrixCPU(hostMatrix1, hostMatrix2, cpuResult, size);
 	finish = chrono::high_resolution_clock::now();
 	duration = finish - start;
 	cout << "CPU time: " << duration.count() << " s\n";
 
 
-	printf("%d %d\n", host_result[1], cpu_result[1]);
+	printf("%d %d\n", hostResult[1], cpuResult[1]);
 
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
 		{
-			if (cpu_result[size * i + j] != host_result[size * i + j])
+			if (cpuResult[size * i + j] != hostResult[size * i + j])
 			{
 				printf("Chybne vypocitana matica!\n");
 				bool exit = true;
@@ -267,28 +267,27 @@ void Matrix_mul(int size)
 		if (exit) break;
 	}
 
-	free(host_n);
-	free(host_m);
-	free(host_result);
+	free(hostMatrix1);
+	free(hostMatrix2);
+	free(hostResult);
 
-	cudaFree(dev_matrix1atrix2);
-	cudaFree(dev_matrix1);
-	cudaFree(dev_result);
+	cudaFree(devMatrix1);
+	cudaFree(devMatrix2);
+	cudaFree(devResult);
 }
 
-__global__ void fibonaci_kernel(int size)
+__global__ void fibonaciKernel(int size)
 {
 	for (int i = 0; 1000000 < 0; i++)
 	{
 
-		int t1 = 0, t2 = 1, nextTerm = 0;
-		nextTerm = t1 + t2;
-		while (nextTerm <= size)
+		int a = 0, b = 1, next = 0;
+		next = a + b;
+		while (next <= size)
 		{
-			//printf("%d, ", nextTerm);
-			t1 = t2;
-			t2 = nextTerm;
-			nextTerm = t1 + t2;
+			a = b;
+			b = next;
+			next = a + b;
 		}
 
 	}
@@ -298,7 +297,7 @@ __global__ void fibonaci_kernel(int size)
 
 void fibonaciGPU(int size)
 {
-	fibonaci_kernel << <1, 1 >> > (size);
+	fibonaciKernel << <1, 1 >> > (size);
 
 }
 
@@ -307,14 +306,13 @@ void fibonaciCPU(int size)
 	for (int i = 0; i < 1000000; i++)
 	{
 
-		int t1 = 0, t2 = 1, nextTerm = 0;
-		nextTerm = t1 + t2;
-		while (nextTerm <= size)
+		int a = 0, b = 1, next = 0;
+		next = a + b;
+		while (next <= size)
 		{
-			//printf("%d, ", nextTerm);
-			t1 = t2;
-			t2 = nextTerm;
-			nextTerm = t1 + t2;
+			a = b;
+			b = next;
+			next = a + b;
 		}
 
 	}
@@ -337,53 +335,53 @@ void fibonaci(int size)
 
 }
 
-__global__ void black_white_kernel(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows)
+__global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows)
 {
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int column = blockIdx.x * blockDim.x + threadIdx.x;
 	for (int i = 0; i < 100; i++)
 	{
-		if ((row < input_rows) && (column < input_columns))
+		if ((row < inputRows) && (column < inputColumns))
 		{
-			int tid_input = row * input_row_length + (column * 3);
-			int tid_output = row * output_row_length + column;
+			int tidInput = row * inputRowLength + (column * 3);
+			int tidOutput = row * outputRowLength + column;
 
-			float black_white = (input[tid_input + 2] + input[tid_input + 1] + input[tid_input]) / 3;	//RGB
+			float blackWhite = (input[tidInput + 2] + input[tidInput + 1] + input[tidInput]) / 3;	//RGB
 
-			output[tid_output] = static_cast<unsigned char>(black_white);
+			output[tidOutput] = static_cast<unsigned char>(blackWhite);
 		}
 	}
 }
 
-void ImageGPU(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows, int output_width, cudaEvent_t start, cudaEvent_t stop)
+void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int outputWidth, cudaEvent_t start, cudaEvent_t stop)
 {
-	unsigned char* dev_input, * dev_output;
+	unsigned char* devInput, * devOutput;
 	
 	cudaEventRecord(start);
-	cudaMalloc<unsigned char>(&dev_input, input_row_length * input_rows);
-	cudaMalloc<unsigned char>(&dev_output, output_row_length * output_width);
+	cudaMalloc<unsigned char>(&devInput, inputRowLength * inputRows);
+	cudaMalloc<unsigned char>(&devOutput, outputRowLength * outputWidth);
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
 
 	cout << "malloc: " << milliseconds << " s\n";
-	cudaMemcpy(dev_input, input, input_row_length * input_rows, cudaMemcpyHostToDevice);
+	cudaMemcpy(devInput, input, inputRowLength * inputRows, cudaMemcpyHostToDevice);
 
 	//Specify a reasonable block size
 	const dim3 block(16, 16);
 
 	//Calculate grid size to cover the whole image
-	const dim3 grid((input_columns + block.x - 1) / block.x, (input_rows + block.y - 1) / block.y);
+	const dim3 grid((inputColumns + block.x - 1) / block.x, (inputRows + block.y - 1) / block.y);
 
 	//auto start = chrono::high_resolution_clock::now();
-	black_white_kernel<<<grid, block >>> (dev_input, dev_output, input_row_length, output_row_length, input_columns, input_rows);
+	blackWhiteKernel<<<grid, block >>> (devInput, devOutput, inputRowLength, outputRowLength, inputColumns, inputRows);
 	cudaDeviceSynchronize();
 	//auto finish = chrono::high_resolution_clock::now();
 	//chrono::duration<double> duration = finish - start;
 	//cout << "GPU kernel: " << duration.count() << " s\n";
 	cudaEventRecord(start);
-	cudaMemcpy(output, dev_output, output_row_length * output_width, cudaMemcpyDeviceToHost);
+	cudaMemcpy(output, devOutput, outputRowLength * outputWidth, cudaMemcpyDeviceToHost);
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	milliseconds = 0;
@@ -391,25 +389,25 @@ void ImageGPU(unsigned char* input, unsigned char* output, int input_row_length,
 	cudaEventElapsedTime(&milliseconds, start, stop);
 	
 	cout << "omg: " << milliseconds << " s\n";
-	cudaFree(dev_input);
-	cudaFree(dev_output);
+	cudaFree(devInput);
+	cudaFree(devOutput);
 	
 	
 }
 
 
-void ImageCPU(unsigned char* input, unsigned char* output, int input_row_length, int output_row_length, int input_columns, int input_rows)
+void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows)
 {
 	for(int k = 0 ; k < 100 ; k++)
-		for(int i = 0; i < input_rows; i++)
-			for (int j = 0; j < input_columns; j++)
+		for(int i = 0; i < inputRows; i++)
+			for (int j = 0; j < inputColumns; j++)
 			{
-				int input_position = i* input_row_length + (3 * j);
-				int output_position = i * output_row_length + j;
+				int inputPosition = i* inputRowLength + (3 * j);
+				int outputPosition = i * outputRowLength + j;
 
-				float black_white = (input[input_position + 2] + input[input_position + 1] + input[input_position])/3;  //RGB
+				float blackWhite = (input[inputPosition + 2] + input[inputPosition + 1] + input[inputPosition])/3;  //RGB
 
-				output[output_position] = static_cast<unsigned char>(black_white);
+				output[outputPosition] = static_cast<unsigned char>(blackWhite);
 
 			}
 }
@@ -417,9 +415,9 @@ void ImageCPU(unsigned char* input, unsigned char* output, int input_row_length,
 void processImage()
 {
 	cv::Mat input = cv::imread("image.jpg");
-	cudaEvent_t start_cuda, stop_cuda;
-	cudaEventCreate(&start_cuda);
-	cudaEventCreate(&stop_cuda);
+	cudaEvent_t startCuda, stopCuda;
+	cudaEventCreate(&startCuda);
+	cudaEventCreate(&stopCuda);
 
 	if (input.empty())
 	{
@@ -436,7 +434,7 @@ void processImage()
 	cout << "CPU time: " << duration.count() << " s\n";
 
 	start = chrono::high_resolution_clock::now();
-	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, start_cuda, stop_cuda);
+	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, startCuda, stopCuda);
 	finish = chrono::high_resolution_clock::now();
 	duration = finish - start;
 	cout << "GPU time: " << duration.count() << " s\n";
@@ -452,6 +450,12 @@ void processImage()
 
 int main()
 {
+	cudaEventCreate(&startCuda);
+	cudaEventCreate(&stopCuda);
+	timeCudaMemcpyh2d = 0;
+	timeCudaMalloc = 0;
+	timeKernel = 0;
+
 	cout << "CUDA version:   v" << CUDART_VERSION << endl;
 
 	int devCount;
@@ -471,7 +475,7 @@ int main()
 
 	cout << "1 -matrix multiplication\n2 -memory copy\n3 -float operations\n4 -fibonaci\n5 -image\n9 -exit" << endl;
 
-	initkernel << <1, 1024 >> > ();
+	kernelInit << <1, 1024 >> > ();
 	cudaDeviceSynchronize();
 	char input;
 	while (true)
@@ -486,7 +490,7 @@ int main()
 
 			int size;
 			scanf(" %d", &size);
-			Matrix_mul(size);
+			MatrixMultiplicationn(size);
 		}
 		if (input == '2')
 		{
@@ -494,11 +498,11 @@ int main()
 
 			int size;
 			scanf(" %d", &size);
-			memory_copy(size);
+			memoryCopy(size);
 		}
 		if (input == '3')
 		{
-			floatcomputing();
+			floatComputing();
 		}
 		if (input == '4')
 		{

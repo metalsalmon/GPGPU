@@ -190,7 +190,7 @@ void matrixCPU(int* matrix1, int* matrix2, int* result, int size)
 				result[i * size + j] += matrix1[i * size + k] * matrix2[k * size + j];
 			}
 }
-void MatrixMultiplicationn(int size)
+void MatrixMultiplication(int size)
 {
 	int allocSize = size * size * sizeof(int);
 
@@ -218,11 +218,11 @@ void MatrixMultiplicationn(int size)
 	int threadsMax = 16;
 	dim3 blockSize(threadsMax, threadsMax);
 	dim3 gridSize(size / blockSize.x, size / blockSize.y);
-	
-	cudaEventRecord(startCuda);
-
 	cudaMalloc(&devMatrix2, allocSize);
 	cudaMalloc(&devMatrix1, allocSize);
+	cudaEventRecord(startCuda);
+
+	
 	cudaMalloc(&devResult, allocSize);
 
 	cudaEventRecord(stopCuda);
@@ -235,11 +235,21 @@ void MatrixMultiplicationn(int size)
 
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
-	cudaEventElapsedTime(&timeCudaMalloc, startCuda, stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
+	cudaEventRecord(startCuda);
 	matrixKernel << <1, 1024 >> > (devMatrix1, devMatrix2, devResult, size);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
 	cudaDeviceSynchronize();
+
+	cudaEventRecord(startCuda);
 	cudaMemcpy(hostResult, devResult, allocSize, cudaMemcpyDeviceToHost);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyd2h, startCuda, stopCuda);
+
 	auto finish = chrono::high_resolution_clock::now();
 	chrono::duration<double> duration = finish - start;
 	cout << "GPU time: " << duration.count() << " s\n";
@@ -266,7 +276,8 @@ void MatrixMultiplicationn(int size)
 		}
 		if (exit) break;
 	}
-
+	
+	printTime();
 	free(hostMatrix1);
 	free(hostMatrix2);
 	free(hostResult);
@@ -453,7 +464,8 @@ int main()
 	cudaEventCreate(&startCuda);
 	cudaEventCreate(&stopCuda);
 	timeCudaMemcpyh2d = 0;
-	timeCudaMalloc = 0;
+	timeCudaMemcpyd2h = 0;
+	timeCudaMalloc = 10;
 	timeKernel = 0;
 
 	cout << "CUDA version:   v" << CUDART_VERSION << endl;
@@ -475,7 +487,7 @@ int main()
 
 	cout << "1 -matrix multiplication\n2 -memory copy\n3 -float operations\n4 -fibonaci\n5 -image\n9 -exit" << endl;
 
-	kernelInit << <1, 1024 >> > ();
+	//kernelInit << <1, 1024 >> > ();
 	cudaDeviceSynchronize();
 	char input;
 	while (true)
@@ -490,7 +502,7 @@ int main()
 
 			int size;
 			scanf(" %d", &size);
-			MatrixMultiplicationn(size);
+			MatrixMultiplication(size);
 		}
 		if (input == '2')
 		{

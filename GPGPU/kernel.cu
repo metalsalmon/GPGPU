@@ -9,12 +9,22 @@
 #include <opencv2/opencv.hpp>
 
 using namespace std;
+using namespace std::chrono;
 int const OUT = 10000;
 int const IN = 100000;
 cudaEvent_t startCuda, stopCuda;
-float timeCudaMalloc, timeCudaMemcpyh2d, timeKernel, timeCudaMemcpyd2h;
+float timeCudaMalloc, timeCudaMemcpyh2d, timeKernel, timeCudaMemcpyd2h, CPUMalloc;
 
 __global__ void kernelInit(){}
+
+void cudaMemcpyd2hTimer(void* dst, const void* src, size_t size, cudaMemcpyKind kind)
+{
+	cudaEventRecord(startCuda);
+	cudaMemcpy(dst, src, size, kind);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyd2h, startCuda, stopCuda);
+}
 
 void printTime()
 {
@@ -50,26 +60,34 @@ void floatGPU()
 	float* data = (float*)malloc(sizeof(float) * OUT);
 	float* devData;
 	cudaMalloc(&devData, OUT * sizeof(float));
+
+	cudaEventRecord(startCuda);
 	floatKernel << <OUT / 1024, 1024 >> > (devData);
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
+
 	cudaDeviceSynchronize();
-	cudaMemcpy(data, devData, OUT * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyd2hTimer(data, devData, OUT * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaFree(devData);
 }
 
 
 void floatComputing()
 {
-	auto start = chrono::high_resolution_clock::now();
+	high_resolution_clock::time_point start = high_resolution_clock::now();
+	floatCPU();
+	high_resolution_clock::time_point stop = high_resolution_clock::now();
+	duration<double> duration = stop - start;
+	cout << "CPU time: " << duration.count() << " s\n";
+
+	start = high_resolution_clock::now();
 	floatGPU();
-	auto finish = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finish - start;
+	stop = high_resolution_clock::now();
+	duration = stop - start;
 	cout << "GPU time: " << duration.count() << " s\n";
 
-	start = chrono::high_resolution_clock::now();
-	floatCPU();
-	finish = chrono::high_resolution_clock::now();
-	duration = finish - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	printTime();
 }
 
 void arrAddCPU(int size, int* arr1, int* arr2, int* result)
@@ -95,22 +113,22 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 	int* devArr1, * devArr2, * devResult;
 
 
-	auto startMal = chrono::high_resolution_clock::now();
+	high_resolution_clock::time_point startMal = high_resolution_clock::now();
 
 	cudaMalloc(&devArr1, sizeof(int) * size);
 	cudaMalloc(&devArr2, sizeof(int) * size);
 	cudaMalloc(&devResult, sizeof(int) * size);
 
 	cudaDeviceSynchronize();
-	auto finishMal = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finishMal - startMal;
+	high_resolution_clock::time_point stopMal = high_resolution_clock::now();
+	duration<double> duration = stopMal - startMal;
 	timeCudaMalloc = duration.count();
 
 	int blockSize = 1024;
 	int gridSize = (int)ceil((float)size / blockSize);
-
 	
 	cudaEventRecord(startCuda);
+	
 	cudaMemcpy(devArr1, arr1, sizeof(int) * size, cudaMemcpyHostToDevice);
 	cudaMemcpy(devArr2, arr2, sizeof(int) * size, cudaMemcpyHostToDevice);
 
@@ -124,11 +142,7 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
 
-	cudaEventRecord(startCuda);
-	cudaMemcpy(result, devResult, sizeof(int) * size, cudaMemcpyDeviceToHost);
-	cudaEventRecord(stopCuda);
-	cudaEventSynchronize(stopCuda);
-	cudaEventElapsedTime(&timeCudaMemcpyd2h, startCuda, stopCuda);
+	cudaMemcpyd2hTimer(result, devResult, sizeof(int) * size, cudaMemcpyDeviceToHost);
 
 	cudaFree(devArr1);
 	cudaFree(devArr2);
@@ -137,9 +151,15 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 
 void memoryCopy(int size)
 {
+	high_resolution_clock::time_point start = high_resolution_clock::now();
+
 	int* arr1 = (int*)malloc(sizeof(int) * size);
 	int* arr2 = (int*)malloc(sizeof(int) * size);
 	int* result = (int*)malloc(sizeof(int) * size);
+
+	high_resolution_clock::time_point stop = high_resolution_clock::now();
+	duration<double> duration = stop - start;
+	CPUMalloc = duration.count();
 
 	for (int i = 0; i < size; i++)
 	{
@@ -148,21 +168,22 @@ void memoryCopy(int size)
 		result[i] = 0;
 	}
 
-	auto start = chrono::high_resolution_clock::now();
-	arrAddGPU(size, arr1, arr2, result);
-	auto finish = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finish - start;
-	cout << "GPU time: " << duration.count() << " s\n";
-	
+	start = high_resolution_clock::now();
+	arrAddCPU(size, arr1, arr2, result);
+	stop = high_resolution_clock::now();
+	duration = stop - start;
+	cout << "CPU time: " << duration.count() << " s\n" << "CPU malloc: " << CPUMalloc << " s\n";
+
 	for (int i = 0; i < size; i++) result[i] = 0;
 
-	start = chrono::high_resolution_clock::now();
-	arrAddCPU(size, arr1, arr2, result);
-	finish = chrono::high_resolution_clock::now();
-	duration = finish - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	start = high_resolution_clock::now();
+	arrAddGPU(size, arr1, arr2, result);
+	stop = high_resolution_clock::now();
+	duration = stop - start;
+	cout << "GPU time: " << duration.count() << " s\n";
 
 	printTime();
+
 	free(arr1);
 	free(arr2);
 	free(result);
@@ -195,43 +216,51 @@ void matrixCPU(int* matrix1, int* matrix2, int* result, int size)
 void MatrixMultiplication(int size)
 {
 	int allocSize = size * size * sizeof(int);
-
-	int* hostMatrix1 = (int*)malloc(allocSize);
-	int* hostMatrix2 = (int*)malloc(allocSize);
-	int* hostResult = (int*)malloc(allocSize);
-	int* cpuResult = (int*)malloc(allocSize);
-
 	int* devMatrix1, * devMatrix2, * devResult;
+	int* Matrix1 = (int*)malloc(allocSize);
+	int* Matrix2 = (int*)malloc(allocSize);
+	int* result = (int*)malloc(allocSize);
+	int* CPUResult = (int*)malloc(allocSize);
+
 
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
 		{
-			//hostMatrix1[i * size + j] = rand() % 1024;
-			//hostMatrix2[i * size + j] = rand() % 1024;
-			hostMatrix1[i * size + j] = 5;
-			hostMatrix2[i * size + j] = 5;
-			cpuResult[i * size + j] = 0;
+			//Matrix1[i * size + j] = rand() % 1500;
+			//Matrix2[i * size + j] = rand() % 1500;
+			Matrix1[i * size + j] = 5;
+			Matrix2[i * size + j] = 5;
+			CPUResult[i * size + j] = 0;
 		}
 	}
-	auto start = chrono::high_resolution_clock::now();
 
+	high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+	matrixCPU(Matrix1, Matrix2, CPUResult, size);
+	high_resolution_clock::time_point stop = std::chrono::high_resolution_clock::now();
+	duration<double> duration = stop - start;
+	cout << "CPU time: " << duration.count() << " s\n";
 
 	int threadsMax = 16;
 	dim3 blockSize(threadsMax, threadsMax);
-	dim3 gridSize(size / blockSize.x, size / blockSize.y);
+	dim3 grid_size(size / blockSize.x, size / blockSize.y);
 
-	auto startMal = chrono::high_resolution_clock::now();
+	start = high_resolution_clock::now();
+
+	high_resolution_clock::time_point startMal = high_resolution_clock::now();
 	cudaMalloc(&devMatrix2, allocSize);
 	cudaMalloc(&devMatrix1, allocSize);
 	cudaMalloc(&devResult, allocSize);
 	cudaDeviceSynchronize();
-	auto finishMal = chrono::high_resolution_clock::now();
-	chrono::duration<double> timeCudaMalloc = finishMal - startMal;
+	high_resolution_clock::time_point stopMal = high_resolution_clock::now();
+	duration = stopMal - startMal;
+	timeCudaMalloc = duration.count();
+
 
 	cudaEventRecord(startCuda);
-	cudaMemcpy(devMatrix2, hostMatrix2, allocSize, cudaMemcpyHostToDevice);
-	cudaMemcpy(devMatrix1, hostMatrix1, allocSize, cudaMemcpyHostToDevice);
+
+	cudaMemcpy(devMatrix2, Matrix2, allocSize, cudaMemcpyHostToDevice);
+	cudaMemcpy(devMatrix1, Matrix1, allocSize, cudaMemcpyHostToDevice);
 
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
@@ -239,51 +268,42 @@ void MatrixMultiplication(int size)
 
 	cudaEventRecord(startCuda);
 	matrixKernel << <1, 1024 >> > (devMatrix1, devMatrix2, devResult, size);
+	
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
 	cudaDeviceSynchronize();
 
-	cudaEventRecord(startCuda);
-	cudaMemcpy(hostResult, devResult, allocSize, cudaMemcpyDeviceToHost);
-	cudaEventRecord(stopCuda);
-	cudaEventSynchronize(stopCuda);
-	cudaEventElapsedTime(&timeCudaMemcpyd2h, startCuda, stopCuda);
-
-	auto finish = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finish - start;
+	cudaMemcpyd2hTimer(result, devResult, allocSize, cudaMemcpyDeviceToHost);
+	stop = high_resolution_clock::now();
+	duration = stop - start;
 	cout << "GPU time: " << duration.count() << " s\n";
 
-	start = chrono::high_resolution_clock::now();
-	matrixCPU(hostMatrix1, hostMatrix2, cpuResult, size);
-	finish = chrono::high_resolution_clock::now();
-	duration = finish - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	printTime();
 
 
-	printf("%d %d\n", hostResult[1], cpuResult[1]);
-	bool exit;
+	printf("%d %d\n", result[1], CPUResult[1]);
+
 	for (int i = 0; i < size; i++)
 	{
 		for (int j = 0; j < size; j++)
 		{
-			if (cpuResult[size * i + j] != hostResult[size * i + j])
+			if (CPUResult[size * i + j] != result[size * i + j])
 			{
 				printf("Chybne vypocitana matica!\n");
-				exit = true;
+				bool exit = true;
 				break;
 			}
 		}
 		if (exit) break;
 	}
-	
-	printTime();
-	free(hostMatrix1);
-	free(hostMatrix2);
-	free(hostResult);
 
-	cudaFree(devMatrix1);
+	free(Matrix2);
+	free(Matrix1);
+	free(result);
+
 	cudaFree(devMatrix2);
+	cudaFree(devMatrix1);
 	cudaFree(devResult);
 }
 
@@ -331,19 +351,17 @@ void fibonaciCPU(int size)
 
 void fibonaci(int size)
 {
-	auto start = chrono::high_resolution_clock::now();
+	high_resolution_clock::time_point start = high_resolution_clock::now();
 	fibonaciCPU(size);
-	auto finish = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finish - start;
+	high_resolution_clock::time_point stop = high_resolution_clock::now();
+	duration<double> duration = stop - start;
 	cout << "CPU time: " << duration.count() << " s\n";
 
-	start = chrono::high_resolution_clock::now();
+	start = high_resolution_clock::now();
 	fibonaciGPU(size);
-	finish = chrono::high_resolution_clock::now();
-	duration = finish - start;
+	stop = high_resolution_clock::now();
+	duration = stop - start;
 	cout << "GPU time: " << duration.count() << " s\n";
-
-
 }
 
 __global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows)
@@ -368,42 +386,43 @@ void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 {
 	unsigned char* devInput, * devOutput;
 	
-	cudaEventRecord(start);
+	high_resolution_clock::time_point startMal = high_resolution_clock::now();
+	
 	cudaMalloc<unsigned char>(&devInput, inputRowLength * inputRows);
 	cudaMalloc<unsigned char>(&devOutput, outputRowLength * outputWidth);
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	float milliseconds = 0;
-	cudaEventElapsedTime(&milliseconds, start, stop);
 
-	cout << "malloc: " << milliseconds << " s\n";
+	cudaDeviceSynchronize();
+	high_resolution_clock::time_point stopMal = high_resolution_clock::now();
+	duration<double> duration = stopMal - startMal;
+	timeCudaMalloc = duration.count();
+
+	cudaEventRecord(startCuda);
+
 	cudaMemcpy(devInput, input, inputRowLength * inputRows, cudaMemcpyHostToDevice);
+	
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
 	//Specify a reasonable block size
 	const dim3 block(16, 16);
 
 	//Calculate grid size to cover the whole image
 	const dim3 grid((inputColumns + block.x - 1) / block.x, (inputRows + block.y - 1) / block.y);
+	
+	cudaEventRecord(startCuda);
 
-	//auto start = chrono::high_resolution_clock::now();
 	blackWhiteKernel<<<grid, block >>> (devInput, devOutput, inputRowLength, outputRowLength, inputColumns, inputRows);
-	cudaDeviceSynchronize();
-	//auto finish = chrono::high_resolution_clock::now();
-	//chrono::duration<double> duration = finish - start;
-	//cout << "GPU kernel: " << duration.count() << " s\n";
-	cudaEventRecord(start);
-	cudaMemcpy(output, devOutput, outputRowLength * outputWidth, cudaMemcpyDeviceToHost);
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	milliseconds = 0;
 
-	cudaEventElapsedTime(&milliseconds, start, stop);
-	
-	cout << "omg: " << milliseconds << " s\n";
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
+
+
+	cudaMemcpyd2hTimer(output, devOutput, outputRowLength * outputWidth, cudaMemcpyDeviceToHost);
+
 	cudaFree(devInput);
-	cudaFree(devOutput);
-	
-	
+	cudaFree(devOutput);	
 }
 
 
@@ -419,7 +438,6 @@ void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 				float blackWhite = (input[inputPosition + 2] + input[inputPosition + 1] + input[inputPosition])/3;  //RGB
 
 				output[outputPosition] = static_cast<unsigned char>(blackWhite);
-
 			}
 }
 
@@ -438,22 +456,22 @@ void processImage()
 
 	cv::Mat output(input.rows, input.cols, CV_8UC1);
 
-	auto start = chrono::high_resolution_clock::now();
+	high_resolution_clock::time_point start = high_resolution_clock::now();
 	ImageCPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows);
-	auto finish = chrono::high_resolution_clock::now();
-	chrono::duration<double> duration = finish - start;
+	high_resolution_clock::time_point stop = high_resolution_clock::now();
+	duration<double> duration = stop - start;
 	cout << "CPU time: " << duration.count() << " s\n";
 
-	start = chrono::high_resolution_clock::now();
+	start = high_resolution_clock::now();
 	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, startCuda, stopCuda);
-	finish = chrono::high_resolution_clock::now();
-	duration = finish - start;
+	stop = high_resolution_clock::now();
+	duration = stop - start;
 	cout << "GPU time: " << duration.count() << " s\n";
 
+	printTime();
 
 	cv::imshow("original", input);
 	cv::imshow("processed", output);
-
 
 	cv::waitKey();
 
@@ -465,7 +483,7 @@ int main()
 	cudaEventCreate(&stopCuda);
 	timeCudaMemcpyh2d = 0;
 	timeCudaMemcpyd2h = 0;
-	timeCudaMalloc = 10;
+	timeCudaMalloc = 0;
 	timeKernel = 0;
 
 	cout << "CUDA version:   v" << CUDART_VERSION << endl;

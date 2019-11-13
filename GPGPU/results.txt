@@ -1,0 +1,256 @@
+****************************************************
+
+Test 1
+1 : matrix size: 10
+CPU time: 0.000001 s
+GPU time: 0.001174 s
+GPU malloc: 0.000634 s
+memory copy to GPU: 0.000120896 s
+memory copy from GPU: 8.0576e-05 s
+kernel execution time: 1.3056e-05 s
+
+2 : matrix size: 20
+CPU time: 0.000006 s
+GPU time: 0.001065 s
+GPU malloc: 0.0005272 s
+memory copy to GPU: 0.000121024 s
+memory copy from GPU: 7.8208e-05 s
+kernel execution time: 1.6864e-05 s
+
+3 : matrix size: 30
+CPU time: 0.000020 s
+GPU time: 0.001746 s
+GPU malloc: 0.0007212 s
+memory copy to GPU: 0.00026304 s
+memory copy from GPU: 0.000130112 s
+kernel execution time: 1.4976e-05 s
+
+4 : matrix size: 40
+CPU time: 0.000056 s
+GPU time: 0.001361 s
+GPU malloc: 0.0006788 s
+memory copy to GPU: 0.000191264 s
+memory copy from GPU: 8.6496e-05 s
+kernel execution time: 1.6032e-05 s
+
+5 : matrix size: 50
+CPU time: 0.000108 s
+GPU time: 0.001530 s
+GPU malloc: 0.0007065 s
+memory copy to GPU: 0.00021504 s
+memory copy from GPU: 0.000118752 s
+kernel execution time: 1.712e-05 s
+
+6 : matrix size: 60
+CPU time: 0.000614 s
+GPU time: 0.001635 s
+GPU malloc: 0.0008083 s
+memory copy to GPU: 0.000315808 s
+memory copy from GPU: 9.088e-05 s
+kernel execution time: 2.0224e-05 s
+
+7 : matrix size: 70
+CPU time: 0.000658 s
+GPU time: 0.001530 s
+GPU malloc: 0.0007452 s
+memory copy to GPU: 0.00019104 s
+memory copy from GPU: 0.000135712 s
+kernel execution time: 1.9648e-05 s
+
+8 : matrix size: 80
+CPU time: 0.000870 s
+GPU time: 0.001718 s
+GPU malloc: 0.000703 s
+memory copy to GPU: 0.000266784 s
+memory copy from GPU: 0.00017616 s
+kernel execution time: 2.0928e-05 s
+
+9 : matrix size: 90
+CPU time: 0.000876 s
+GPU time: 0.001560 s
+GPU malloc: 0.0007983 s
+memory copy to GPU: 0.000203744 s
+memory copy from GPU: 0.000119968 s
+kernel execution time: 2.4416e-05 s
+
+10 : matrix size: 100
+CPU time: 0.001248 s
+GPU time: 0.001675 s
+GPU malloc: 0.0007584 s
+memory copy to GPU: 0.000247456 s
+memory copy from GPU: 0.000150752 s
+kernel execution time: 2.5792e-05 s
+
+****************************************************
+
+Test 2
+1 : array of int length : 1
+CPU time: 0.000000 s
+CPU malloc: 0.000001 s
+GPU time: 0.002097 s
+GPU malloc: 0.0011081 s
+memory copy to GPU: 0.000169024 s
+memory copy from GPU: 9.8144e-05 s
+kernel execution time: 8.736e-06 s
+
+2 : array of int length : 10
+CPU time: 0.000000 s
+CPU malloc: 0.000001 s
+GPU time: 0.001987 s
+GPU malloc: 0.0008495 s
+memory copy to GPU: 0.000183616 s
+memory copy from GPU: 8.8704e-05 s
+kernel execution time: 9.504e-06 s
+
+3 : array of int length : 100
+CPU time: 0.000000 s
+CPU malloc: 0.000004 s
+GPU time: 0.002624 s
+GPU malloc: 0.0015773 s
+memory copy to GPU: 0.00018304 s
+memory copy from GPU: 0.00011248 s
+kernel execution time: 8.736e-06 s
+
+4 : array of int length : 1000
+CPU time: 0.000001 s
+CPU malloc: 0.000005 s
+GPU time: 0.002175 s
+GPU malloc: 0.0010809 s
+memory copy to GPU: 0.000203328 s
+memory copy from GPU: 9.8656e-05 s
+kernel execution time: 1.0144e-05 s
+
+5 : array of int length : 10000
+CPU time: 0.000005 s
+CPU malloc: 0.000004 s
+GPU time: 0.002750 s
+GPU malloc: 0.0010247 s
+memory copy to GPU: 0.000279072 s
+memory copy from GPU: 0.000160352 s
+kernel execution time: 1.328e-05 s
+
+6 : array of int length : 100000
+CPU time: 0.000099 s
+CPU malloc: 0.000045 s
+GPU time: 0.007992 s
+GPU malloc: 0.0028378 s
+memory copy to GPU: 0.00293565 s
+memory copy from GPU: 0.00071344 s
+kernel execution time: 3.2864e-05 s
+
+7 : array of int length : 1000000
+CPU time: 0.001782 s
+CPU malloc: 0.000076 s
+GPU time: 0.023782 s
+GPU malloc: 0.008294 s
+memory copy to GPU: 0.00744064 s
+memory copy from GPU: 0.00372346 s
+kernel execution time: 0.00091392 s
+
+8 : array of int length : 10000000
+CPU time: 0.021316 s
+CPU malloc: 0.000798 s
+GPU time: 0.129319 s
+GPU malloc: 0.0146891 s
+memory copy to GPU: 0.0716957 s
+memory copy from GPU: 0.0328485 s
+kernel execution time: 0.00894202 s
+
+9 : array of int length : 100000000
+CPU time: 0.215355 s
+CPU malloc: 0.005765 s
+GPU time: 1.278243 s
+GPU malloc: 0.110722 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.334947 s
+kernel execution time: 0.0892629 s
+
+****************************************************
+
+Test 3
+1 number of operations: 10000
+CPU time: 0.000077 s
+GPU time: 0.001881 s
+GPU malloc: 0.0010685 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000166784 s
+kernel execution time: 1.4176e-05 s
+
+2 number of operations: 100000
+CPU time: 0.000434 s
+GPU time: 0.001259 s
+GPU malloc: 0.0006442 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000116544 s
+kernel execution time: 2.7168e-05 s
+
+3 number of operations: 1000000
+CPU time: 0.014623 s
+GPU time: 0.001982 s
+GPU malloc: 0.0010654 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000143648 s
+kernel execution time: 0.000141792 s
+
+4 number of operations: 10000000
+CPU time: 0.116031 s
+GPU time: 0.003115 s
+GPU malloc: 0.0008593 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000172768 s
+kernel execution time: 0.00130099 s
+
+5 number of operations: 100000000
+CPU time: 1.096446 s
+GPU time: 0.014567 s
+GPU malloc: 0.0008106 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000176256 s
+kernel execution time: 0.0129026 s
+
+6 number of operations: 1000000000
+CPU time: 10.873599 s
+GPU time: 0.130910 s
+GPU malloc: 0.0010623 s
+memory copy to GPU: 0.706131 s
+memory copy from GPU: 0.000168896 s
+kernel execution time: 0.128925 s
+
+****************************************************
+
+Test 4
+****************************************************
+
+Test 5
+1 number of images 1
+CPU time: 0.003613 s
+GPU time: 0.010525 s
+GPU malloc: 0.0020305 s
+memory copy to GPU: 0.00522762 s
+memory copy from GPU: 0.0015791 s
+kernel execution time: 0.00077728 s
+
+2 number of images 10
+CPU time: 0.027836 s
+GPU time: 0.012211 s
+GPU malloc: 0.0020286 s
+memory copy to GPU: 0.00520861 s
+memory copy from GPU: 0.00158592 s
+kernel execution time: 0.00237638 s
+
+3 number of images 100
+CPU time: 0.288168 s
+GPU time: 0.029003 s
+GPU malloc: 0.0020021 s
+memory copy to GPU: 0.00551795 s
+memory copy from GPU: 0.00162374 s
+kernel execution time: 0.0185048 s
+
+4 number of images 1000
+CPU time: 2.909089 s
+GPU time: 0.202315 s
+GPU malloc: 0.0023396 s
+memory copy to GPU: 0.00543667 s
+memory copy from GPU: 0.00159904 s
+kernel execution time: 0.191802 s
+

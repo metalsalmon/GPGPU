@@ -1,0 +1,20 @@
+repeat : 10
+test1 - Matrix Mul
+base1 : 10
+increment1 : 10
+
+test2 - Memcopy
+base2 : 1
+increment2 : 10
+
+test3 - float operations
+base3 : 1
+increment3 : 10
+
+test4 - fibonaci
+base4 : 10
+increment4 : 10
+
+test5 - image
+base5 : 1
+increment5 : 10

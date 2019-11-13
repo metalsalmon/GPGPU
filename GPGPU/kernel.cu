@@ -7,15 +7,48 @@
 #include <iostream>
 #include <chrono>
 #include <opencv2/opencv.hpp>
+#include <sstream>
+#include <fstream>
 
 using namespace std;
 using namespace std::chrono;
 int const OUT = 10000;
-int const IN = 100000;
+int IN = 10000;
 cudaEvent_t startCuda, stopCuda;
 float timeCudaMalloc, timeCudaMemcpyh2d, timeKernel, timeCudaMemcpyd2h, CPUMalloc;
+stringstream ss;
+
+struct Settings {
+	int	test1Base, test1Increment;
+	int	test2Base, test2Increment;
+	int	test3Base, test3Increment;
+	int	test4Base, test4Increment;
+	int	test5Base, test5Increment;
+	int repeat;
+};
 
 __global__ void kernelInit(){}
+
+void readConfig(Settings& settings)
+{
+	ifstream fileConfig("config.txt");
+	string line;
+	while (getline(fileConfig, line)) {
+		istringstream readline(line.substr(line.find(":") + 1));
+		if (line.find("repeat") != -1) readline >> settings.repeat;
+		else if (line.find("base1") != -1) readline >> settings.test1Base;
+		else if (line.find("base2") != -1) readline >> settings.test2Base;
+		else if (line.find("base3") != -1) readline >> settings.test3Base;
+		else if (line.find("base4") != -1) readline >> settings.test4Base;
+		else if (line.find("base5") != -1) readline >> settings.test5Base;
+		else if (line.find("increment1") != -1) readline >> settings.test1Increment;
+		else if (line.find("increment2") != -1) readline >> settings.test2Increment;
+		else if (line.find("increment3") != -1) readline >> settings.test3Increment;
+		else if (line.find("increment4") != -1) readline >> settings.test4Increment;
+		else if (line.find("increment5") != -1) readline >> settings.test5Increment;
+	}
+	fileConfig.close();
+}
 
 void cudaMemcpyd2hTimer(void* dst, const void* src, size_t size, cudaMemcpyKind kind)
 {
@@ -28,10 +61,29 @@ void cudaMemcpyd2hTimer(void* dst, const void* src, size_t size, cudaMemcpyKind 
 
 void printTime()
 {
-	cout << "GPU malloc: " << timeCudaMalloc << " s\n"
+	cout <<"GPU malloc: " << timeCudaMalloc << " s\n"
 		<< "memory copy to GPU: " << timeCudaMemcpyh2d / 1000 << " s\n"
 		<< "memory copy from GPU: " << timeCudaMemcpyd2h / 1000 << " s\n"
-		<< "kernel: " << timeKernel / 1000 << " s\n";
+		<< "kernel execution time: " << timeKernel / 1000 << " s\n\n";
+
+	ss  << "GPU malloc: " << timeCudaMalloc << " s\n"
+		<< "memory copy to GPU: " << timeCudaMemcpyh2d / 1000 << " s\n"
+		<< "memory copy from GPU: " << timeCudaMemcpyd2h / 1000 << " s\n"
+		<< "kernel execution time: " << timeKernel / 1000 << " s\n\n";
+
+
+}
+
+void CPUGPUTime(string text)
+{
+	cout << text;
+	ss << text;
+}
+
+void printTestNumber(string text)
+{
+	cout << text;
+	ss << text;
 }
 
 void floatCPU()
@@ -47,7 +99,7 @@ void floatCPU()
 }
 
 
-__global__ void floatKernel(float* buf)
+__global__ void floatKernel(float* buf, int IN)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	buf[i] = 1.0f * i / OUT;
@@ -56,13 +108,21 @@ __global__ void floatKernel(float* buf)
 }
 void floatGPU()
 {
-	int count = 0;
 	float* data = (float*)malloc(sizeof(float) * OUT);
 	float* devData;
+
+	high_resolution_clock::time_point startMal = high_resolution_clock::now();
+
 	cudaMalloc(&devData, OUT * sizeof(float));
 
+
+	cudaDeviceSynchronize();
+	high_resolution_clock::time_point stopMal = high_resolution_clock::now();
+	duration<double> duration = stopMal - startMal;
+	timeCudaMalloc = duration.count();
+
 	cudaEventRecord(startCuda);
-	floatKernel << <OUT / 1024, 1024 >> > (devData);
+	floatKernel << <OUT / 1024, 1024 >> > (devData, IN);
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
@@ -79,13 +139,13 @@ void floatComputing()
 	floatCPU();
 	high_resolution_clock::time_point stop = high_resolution_clock::now();
 	duration<double> duration = stop - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
 	floatGPU();
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "GPU time: " << duration.count() << " s\n";
+	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 
 	printTime();
 }
@@ -172,7 +232,7 @@ void memoryCopy(int size)
 	arrAddCPU(size, arr1, arr2, result);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "CPU time: " << duration.count() << " s\n" << "CPU malloc: " << CPUMalloc << " s\n";
+	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n" + "CPU malloc: " +to_string(CPUMalloc) + " s\n");
 
 	for (int i = 0; i < size; i++) result[i] = 0;
 
@@ -180,7 +240,7 @@ void memoryCopy(int size)
 	arrAddGPU(size, arr1, arr2, result);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "GPU time: " << duration.count() << " s\n";
+	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 
 	printTime();
 
@@ -239,7 +299,7 @@ void MatrixMultiplication(int size)
 	matrixCPU(Matrix1, Matrix2, CPUResult, size);
 	high_resolution_clock::time_point stop = std::chrono::high_resolution_clock::now();
 	duration<double> duration = stop - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	int threadsMax = 16;
 	dim3 blockSize(threadsMax, threadsMax);
@@ -277,12 +337,12 @@ void MatrixMultiplication(int size)
 	cudaMemcpyd2hTimer(result, devResult, allocSize, cudaMemcpyDeviceToHost);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "GPU time: " << duration.count() << " s\n";
+	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 
 	printTime();
 
 
-	printf("%d %d\n", result[1], CPUResult[1]);
+	//printf("%d %d\n", result[1], CPUResult[1]);
 
 	for (int i = 0; i < size; i++)
 	{
@@ -290,7 +350,7 @@ void MatrixMultiplication(int size)
 		{
 			if (CPUResult[size * i + j] != result[size * i + j])
 			{
-				printf("Chybne vypocitana matica!\n");
+				cout << "Chybne vypocitana matica!\n";
 				bool exit = true;
 				break;
 			}
@@ -355,20 +415,20 @@ void fibonaci(int size)
 	fibonaciCPU(size);
 	high_resolution_clock::time_point stop = high_resolution_clock::now();
 	duration<double> duration = stop - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
 	fibonaciGPU(size);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "GPU time: " << duration.count() << " s\n";
+	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 }
 
-__global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows)
+__global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int size)
 {
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int column = blockIdx.x * blockDim.x + threadIdx.x;
-	for (int i = 0; i < 100; i++)
+	for (int i = 0; i < size; i++)
 	{
 		if ((row < inputRows) && (column < inputColumns))
 		{
@@ -382,7 +442,7 @@ __global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, in
 	}
 }
 
-void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int outputWidth, cudaEvent_t start, cudaEvent_t stop)
+void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int outputWidth, int size)
 {
 	unsigned char* devInput, * devOutput;
 	
@@ -405,14 +465,14 @@ void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
 	//Specify a reasonable block size
-	const dim3 block(16, 16);
+	const dim3 block(32, 32);
 
 	//Calculate grid size to cover the whole image
 	const dim3 grid((inputColumns + block.x - 1) / block.x, (inputRows + block.y - 1) / block.y);
 	
 	cudaEventRecord(startCuda);
 
-	blackWhiteKernel<<<grid, block >>> (devInput, devOutput, inputRowLength, outputRowLength, inputColumns, inputRows);
+	blackWhiteKernel<<<grid, block >>> (devInput, devOutput, inputRowLength, outputRowLength, inputColumns, inputRows, size);
 
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
@@ -426,9 +486,9 @@ void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 }
 
 
-void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows)
+void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int size)
 {
-	for(int k = 0 ; k < 100 ; k++)
+	for(int k = 0 ; k < size ; k++)
 		for(int i = 0; i < inputRows; i++)
 			for (int j = 0; j < inputColumns; j++)
 			{
@@ -441,7 +501,7 @@ void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 			}
 }
 
-void processImage()
+void processImage(int size)
 {
 	cv::Mat input = cv::imread("image.jpg");
 	cudaEvent_t startCuda, stopCuda;
@@ -457,21 +517,21 @@ void processImage()
 	cv::Mat output(input.rows, input.cols, CV_8UC1);
 
 	high_resolution_clock::time_point start = high_resolution_clock::now();
-	ImageCPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows);
+	ImageCPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, size);
 	high_resolution_clock::time_point stop = high_resolution_clock::now();
 	duration<double> duration = stop - start;
-	cout << "CPU time: " << duration.count() << " s\n";
+	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
-	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, startCuda, stopCuda);
+	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, size);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
-	cout << "GPU time: " << duration.count() << " s\n";
+	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 
 	printTime();
 
-	cv::imshow("original", input);
-	cv::imshow("processed", output);
+	//cv::imshow("original", input);
+	//cv::imshow("processed", output);
 
 	cv::waitKey();
 
@@ -503,16 +563,75 @@ int main()
 	//cout << "  Max grid dimensions:  [ " << GPU.maxGridSize[0] << ", " << GPU.maxGridSize[1] << ", " << GPU.maxGridSize[2] << " ]" << endl;
 	cout << endl << endl;
 
-	cout << "1 -matrix multiplication\n2 -memory copy\n3 -float operations\n4 -fibonaci\n5 -image\n9 -exit" << endl;
+	cout << "Test 1 -matrix multiplication\nTest 2 -memory copy\nTest 3 -float operations\nTest 4 -fibonaci\nTest 5 -image\n" << endl;
 
-	//kernelInit << <1, 1024 >> > ();
-	//cudaDeviceSynchronize();
+	kernelInit << <1, 1024 >> > ();
+	cudaDeviceSynchronize();
+
+	Settings settings;
+	readConfig(settings);
+
 	char input;
+
+	for (int i = 1; i < 6; i++)
+	{
+		printTestNumber("****************************************************\n\nTest "+ to_string(i) + "\n");
+		for (int j = 1; j < settings.repeat+1; j++)
+		{
+
+			if (i == 1)
+			{
+				printTestNumber(to_string(j) +" : matrix size: "+to_string(settings.test1Base) + "\n");
+				MatrixMultiplication(settings.test1Base);
+				settings.test1Base += settings.test1Increment;
+			}
+
+			else if (i == 2)
+			{
+				printTestNumber(to_string(j) + " : array of int length : " + to_string(settings.test2Base) + "\n");
+				memoryCopy(settings.test2Base);
+				if (j >= 9) break;
+				settings.test2Base *= settings.test2Increment;
+			}
+
+			else if (i == 3)
+			{
+				if (j > 6) break;
+				IN = settings.test3Base;
+				printTestNumber(to_string(j) + " number of operations: " + to_string(OUT * IN) + "\n");
+				floatComputing();
+				settings.test3Base *= settings.test3Increment;
+			}
+
+			else if (i == 5)
+			{
+				if (j > 4) break;
+				printTestNumber(to_string(j) + " number of images " + to_string(settings.test5Base) + "\n");
+				processImage(settings.test5Base);
+				if (j >= 9) break;
+				settings.test5Base *= settings.test5Increment;
+			}
+
+		}
+	}
+
+	ofstream resultsFile;
+	resultsFile.open("results.txt");
+	resultsFile << ss.rdbuf();
+	resultsFile.close();
+/*
 	while (true)
 	{
 		cout << ">" << " ";
 		scanf(" %c", &input);
-		if (input == '9') return 0;
+		if (input == '9')
+		{
+			ofstream resultsFile;
+			resultsFile.open("results.txt");
+			resultsFile << ss.rdbuf();
+			resultsFile.close();
+			return 0;
+		}
 
 		if (input == '1')
 		{
@@ -543,9 +662,11 @@ int main()
 
 		if (input == '5')
 		{
-			processImage();
+			processImage(100);
 		}
-	}
+	}*/
+
+	cin.get();
 
 	return 0;
 }

@@ -1,20 +1,30 @@
-repeat : 10
 test1 - Matrix Mul
+repeat1 : 30
+blocksize1 : 1024
+gridsize1 : 1
 base1 : 10
-increment1 : 10
+increment1 : 25
 
 test2 - Memcopy
+repeat2 : 9
+blocksize2 : 1024
 base2 : 1
 increment2 : 10
 
 test3 - float operations
+repeat3 : 6
+blocksize3 : 1024
 base3 : 1
 increment3 : 10
 
 test4 - fibonaci
-base4 : 10
+repeat4 : 7
+blocksize4 : 1024
+base4 : 1
 increment4 : 10
 
 test5 - image
+repeat5 : 10
+blocksize5 : 32
 base5 : 1
-increment5 : 10
+increment5 : 2

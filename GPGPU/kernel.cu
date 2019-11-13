@@ -12,22 +12,24 @@
 
 using namespace std;
 using namespace std::chrono;
-int const OUT = 10000;
-int IN = 10000;
 cudaEvent_t startCuda, stopCuda;
 float timeCudaMalloc, timeCudaMemcpyh2d, timeKernel, timeCudaMemcpyd2h, CPUMalloc;
 stringstream ss;
 
 struct Settings {
-	int	test1Base, test1Increment;
-	int	test2Base, test2Increment;
-	int	test3Base, test3Increment;
-	int	test4Base, test4Increment;
-	int	test5Base, test5Increment;
-	int repeat;
+	int	test1repeat, test1Base, test1Increment, test1blocksize, test1gridsize;
+	int	test2repeat, test2Base, test2Increment, test2blocksize;
+	int	test3repeat, test3Base, test3Increment, test3blocksize;
+	int	test4repeat, test4Base, test4Increment, test4blocksize;
+	int	test5repeat, test5Base, test5Increment, test5blocksize;
 };
 
 __global__ void kernelInit(){}
+
+void resetTime()
+{
+	timeCudaMalloc = timeCudaMemcpyh2d = timeKernel = timeCudaMemcpyd2h = CPUMalloc = 0;
+}
 
 void readConfig(Settings& settings)
 {
@@ -35,8 +37,7 @@ void readConfig(Settings& settings)
 	string line;
 	while (getline(fileConfig, line)) {
 		istringstream readline(line.substr(line.find(":") + 1));
-		if (line.find("repeat") != -1) readline >> settings.repeat;
-		else if (line.find("base1") != -1) readline >> settings.test1Base;
+		if (line.find("base1") != -1) readline >> settings.test1Base;
 		else if (line.find("base2") != -1) readline >> settings.test2Base;
 		else if (line.find("base3") != -1) readline >> settings.test3Base;
 		else if (line.find("base4") != -1) readline >> settings.test4Base;
@@ -45,7 +46,18 @@ void readConfig(Settings& settings)
 		else if (line.find("increment2") != -1) readline >> settings.test2Increment;
 		else if (line.find("increment3") != -1) readline >> settings.test3Increment;
 		else if (line.find("increment4") != -1) readline >> settings.test4Increment;
+		else if (line.find("blocksize1") != -1) readline >> settings.test1blocksize;
+		else if (line.find("gridsize1") != -1) readline >> settings.test1gridsize;
 		else if (line.find("increment5") != -1) readline >> settings.test5Increment;
+		else if (line.find("repeat1") != -1) readline >> settings.test1repeat;
+		else if (line.find("repeat2") != -1) readline >> settings.test2repeat;
+		else if (line.find("repeat3") != -1) readline >> settings.test3repeat;
+		else if (line.find("repeat4") != -1) readline >> settings.test4repeat;
+		else if (line.find("repeat5") != -1) readline >> settings.test5repeat;
+		else if (line.find("blocksize2") != -1) readline >> settings.test2blocksize;
+		else if (line.find("blocksize3") != -1) readline >> settings.test3blocksize;
+		else if (line.find("blocksize4") != -1) readline >> settings.test4blocksize;
+		else if (line.find("blocksize5") != -1) readline >> settings.test5blocksize;
 	}
 	fileConfig.close();
 }
@@ -86,34 +98,39 @@ void printTestNumber(string text)
 	ss << text;
 }
 
-void floatCPU()
+void floatCPU(int in, int out)
 {
-	float* data = (float*)malloc(sizeof(float) * OUT);
+	float* data = (float*)malloc(sizeof(float) * out);
 
-	for (int i = 1; i < OUT; i++)
+	for (int i = 1; i < out; i++)
 	{
-		data[i] = 1.0f * i / OUT;
-		for (int j = 1; j < IN; j++)
-			data[i] = data[i] / IN * data[i] / IN - 0.50f;
+		data[i] = 1.0f * i / out;
+		for (int j = 1; j < in; j++)
+		{
+			data[i] = data[i] / in * data[i] / in - 0.50f;
+		}
 	}
 }
 
+__global__ void floatKernel(float* arr, int in, int out)
 
-__global__ void floatKernel(float* buf, int IN)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	buf[i] = 1.0f * i / OUT;
-	for (int j = 0; j < IN; j++)
-		buf[i] = buf[i] / IN * buf[i] / IN - 0.50f;
+	arr[i] = 1.0f * i / out;
+	for (int j = 0; j < in; j++)
+	{
+		arr[i] = arr[i] / in * arr[i] / in - 0.50f;
+	}
 }
-void floatGPU()
+
+void floatGPU(int in, int out, int blockSize)
 {
-	float* data = (float*)malloc(sizeof(float) * OUT);
+	float* data = (float*)malloc(sizeof(float) * out);
 	float* devData;
 
 	high_resolution_clock::time_point startMal = high_resolution_clock::now();
 
-	cudaMalloc(&devData, OUT * sizeof(float));
+	cudaMalloc(&devData, out * sizeof(float));
 
 
 	cudaDeviceSynchronize();
@@ -122,27 +139,27 @@ void floatGPU()
 	timeCudaMalloc = duration.count();
 
 	cudaEventRecord(startCuda);
-	floatKernel << <OUT / 1024, 1024 >> > (devData, IN);
+	floatKernel <<<out / blockSize, blockSize >> > (devData, in, out);
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
 
 	cudaDeviceSynchronize();
-	cudaMemcpyd2hTimer(data, devData, OUT * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyd2hTimer(data, devData, out * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaFree(devData);
 }
 
 
-void floatComputing()
+void floatComputing(int in, int out, int blockSize)
 {
 	high_resolution_clock::time_point start = high_resolution_clock::now();
-	floatCPU();
+	floatCPU(in, out);
 	high_resolution_clock::time_point stop = high_resolution_clock::now();
 	duration<double> duration = stop - start;
 	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
-	floatGPU();
+	floatGPU(in, out, blockSize);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
 	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
@@ -168,7 +185,7 @@ __global__ void arrAddKernel(int* arr1, int* arr2, int* result, int size)
 }
 
 
-void arrAddGPU(int size, int* arr1, int* arr2, int* result)
+void arrAddGPU(int size, int* arr1, int* arr2, int* result, int blockSize)
 {
 	int* devArr1, * devArr2, * devResult;
 
@@ -183,9 +200,6 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 	high_resolution_clock::time_point stopMal = high_resolution_clock::now();
 	duration<double> duration = stopMal - startMal;
 	timeCudaMalloc = duration.count();
-
-	int blockSize = 1024;
-	int gridSize = (int)ceil((float)size / blockSize);
 	
 	cudaEventRecord(startCuda);
 	
@@ -197,7 +211,7 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
 	cudaEventRecord(startCuda);
-	arrAddKernel << <gridSize, blockSize >> > (devArr1, devArr2, devResult, size);
+	arrAddKernel << < (int)ceil((float)size) / blockSize, blockSize >> > (devArr1, devArr2, devResult, size);
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
@@ -209,7 +223,7 @@ void arrAddGPU(int size, int* arr1, int* arr2, int* result)
 	cudaFree(devResult);
 }
 
-void memoryCopy(int size)
+void memoryCopy(int size, int blockSize)
 {
 	high_resolution_clock::time_point start = high_resolution_clock::now();
 
@@ -237,7 +251,7 @@ void memoryCopy(int size)
 	for (int i = 0; i < size; i++) result[i] = 0;
 
 	start = high_resolution_clock::now();
-	arrAddGPU(size, arr1, arr2, result);
+	arrAddGPU(size, arr1, arr2, result, blockSize);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
 	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
@@ -273,7 +287,7 @@ void matrixCPU(int* matrix1, int* matrix2, int* result, int size)
 				result[i * size + j] += matrix1[i * size + k] * matrix2[k * size + j];
 			}
 }
-void MatrixMultiplication(int size)
+void MatrixMultiplication(int size, int blocksize, int gridsize)
 {
 	int allocSize = size * size * sizeof(int);
 	int* devMatrix1, * devMatrix2, * devResult;
@@ -301,10 +315,6 @@ void MatrixMultiplication(int size)
 	duration<double> duration = stop - start;
 	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
-	int threadsMax = 16;
-	dim3 blockSize(threadsMax, threadsMax);
-	dim3 grid_size(size / blockSize.x, size / blockSize.y);
-
 	start = high_resolution_clock::now();
 
 	high_resolution_clock::time_point startMal = high_resolution_clock::now();
@@ -327,7 +337,7 @@ void MatrixMultiplication(int size)
 	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
 	cudaEventRecord(startCuda);
-	matrixKernel << <1, 1024 >> > (devMatrix1, devMatrix2, devResult, size);
+	matrixKernel << <gridsize, blocksize >> > (devMatrix1, devMatrix2, devResult, size);
 	
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
@@ -369,47 +379,53 @@ void MatrixMultiplication(int size)
 
 __global__ void fibonaciKernel(int size)
 {
-	for (int i = 0; 1000000 < 0; i++)
+	for (int i = 0; i < size; i++)
 	{
 
 		int a = 0, b = 1, next = 0;
 		next = a + b;
-		while (next <= size)
+		while (next <= 100000000)
 		{
 			a = b;
 			b = next;
 			next = a + b;
+
 		}
 
 	}
 
-
 }
 
-void fibonaciGPU(int size)
+void fibonaciGPU(int size, int blockSize)
 {
-	fibonaciKernel << <1, 1 >> > (size);
+	cudaEventRecord(startCuda);
+	fibonaciKernel <<<1, blockSize >> > (size);
+
+
+	cudaEventRecord(stopCuda);
+	cudaEventSynchronize(stopCuda);
+	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
+	cudaDeviceSynchronize();
 
 }
 
 void fibonaciCPU(int size)
 {
-	for (int i = 0; i < 1000000; i++)
+	for (int i = 0; i < 100000000; i++)
 	{
-
-		int a = 0, b = 1, next = 0;
-		next = a + b;
-		while (next <= size)
-		{
-			a = b;
-			b = next;
+			int a = 0, b = 1, next = 0;
 			next = a + b;
-		}
+			while (next <= 100000000)
+			{
+				a = b;
+				b = next;
+				next = a + b;
+			}
 
 	}
 }
 
-void fibonaci(int size)
+void fibonaci(int size, int blockSize)
 {
 	high_resolution_clock::time_point start = high_resolution_clock::now();
 	fibonaciCPU(size);
@@ -418,31 +434,35 @@ void fibonaci(int size)
 	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
-	fibonaciGPU(size);
+	fibonaciGPU(size, blockSize);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
 	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
+
+	printTime();
 }
 
-__global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int size)
+__global__ void blackWhiteKernel(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows,int size)
 {
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int column = blockIdx.x * blockDim.x + threadIdx.x;
+	int tidInput, tidOutput;
+	float blackWhite;
 	for (int i = 0; i < size; i++)
 	{
 		if ((row < inputRows) && (column < inputColumns))
 		{
-			int tidInput = row * inputRowLength + (column * 3);
-			int tidOutput = row * outputRowLength + column;
+			tidInput = row * inputRowLength + (column * 3);
+			tidOutput = row * outputRowLength + column;
 
-			float blackWhite = (input[tidInput + 2] + input[tidInput + 1] + input[tidInput]) / 3;	//RGB
+			blackWhite = (input[tidInput + 2] + input[tidInput + 1] + input[tidInput]) / 3;	//RGB
 
 			output[tidOutput] = static_cast<unsigned char>(blackWhite);
 		}
 	}
 }
 
-void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int outputWidth, int size)
+void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, int outputRowLength, int inputColumns, int inputRows, int outputWidth, int size, int blockSize)
 {
 	unsigned char* devInput, * devOutput;
 	
@@ -464,12 +484,8 @@ void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeCudaMemcpyh2d, startCuda, stopCuda);
 
-	//Specify a reasonable block size
-	const dim3 block(32, 32);
-
-	//Calculate grid size to cover the whole image
-	const dim3 grid((inputColumns + block.x - 1) / block.x, (inputRows + block.y - 1) / block.y);
-	
+	dim3 block(blockSize, blockSize);
+	dim3 grid((ceil((int)(float)inputColumns + block.x)) / block.x, ((ceil((int)(float)inputRows + block.y)) / block.y));
 	cudaEventRecord(startCuda);
 
 	blackWhiteKernel<<<grid, block >>> (devInput, devOutput, inputRowLength, outputRowLength, inputColumns, inputRows, size);
@@ -477,7 +493,6 @@ void ImageGPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 	cudaEventRecord(stopCuda);
 	cudaEventSynchronize(stopCuda);
 	cudaEventElapsedTime(&timeKernel, startCuda, stopCuda);
-
 
 	cudaMemcpyd2hTimer(output, devOutput, outputRowLength * outputWidth, cudaMemcpyDeviceToHost);
 
@@ -501,7 +516,7 @@ void ImageCPU(unsigned char* input, unsigned char* output, int inputRowLength, i
 			}
 }
 
-void processImage(int size)
+void processImage(int size, int blockSize)
 {
 	cv::Mat input = cv::imread("image.jpg");
 	cudaEvent_t startCuda, stopCuda;
@@ -523,15 +538,15 @@ void processImage(int size)
 	CPUGPUTime("CPU time: " + to_string(duration.count()) + " s\n");
 
 	start = high_resolution_clock::now();
-	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, size);
+	ImageGPU(input.ptr(), output.ptr(), input.step, output.step, input.cols, input.rows, output.rows, size, blockSize);
 	stop = high_resolution_clock::now();
 	duration = stop - start;
 	CPUGPUTime("GPU time: " + to_string(duration.count()) + " s\n");
 
 	printTime();
 
-	//cv::imshow("original", input);
-	//cv::imshow("processed", output);
+	cv::imshow("original", input);
+	cv::imshow("processed", output);
 
 	cv::waitKey();
 
@@ -546,26 +561,29 @@ int main()
 	timeCudaMalloc = 0;
 	timeKernel = 0;
 
-	cout << "CUDA version:   v" << CUDART_VERSION << endl;
+	cout << "CUDA version:   v" << CUDART_VERSION << "\n";
 
 	int devCount;
 	cudaGetDeviceCount(&devCount);
+	if(devCount == 0)
+	{
+		cout << "0 cuda devices\n";
+		return 0;
+	}
 	cudaDeviceProp GPU;
 	cudaGetDeviceProperties(&GPU, 0);
-	cout << GPU.name << ": " << GPU.major << "." << GPU.minor << endl;
-	cout << "  Global memory:   " << GPU.totalGlobalMem / (1024 * 1024) << "mb" << endl;
-	cout << "  Shared memory:   " << GPU.sharedMemPerBlock / 1024 << "kb" << endl;
-	cout << "  Constant memory: " << GPU.totalConstMem / 1024 << "kb" << endl;
+	cout << GPU.name << ": " << GPU.major << "." << GPU.minor << "\n";
+	cout << "  Global memory:   " << GPU.totalGlobalMem / (1024 * 1024) << "mb" << "\n";
+	cout << "  Shared memory:   " << GPU.sharedMemPerBlock / 1024 << "kb" << "\n";
 
-	cout << "  Warp size:         " << GPU.warpSize << endl;
-	cout << "  Threads per block: " << GPU.maxThreadsPerBlock << endl;
-	cout << "  Max block dimensions: [ " << GPU.maxThreadsDim[0] << ", " << GPU.maxThreadsDim[1] << ", " << GPU.maxThreadsDim[2] << " ]" << endl;
-	//cout << "  Max grid dimensions:  [ " << GPU.maxGridSize[0] << ", " << GPU.maxGridSize[1] << ", " << GPU.maxGridSize[2] << " ]" << endl;
-	cout << endl << endl;
+	cout << "  Warp size:         " << GPU.warpSize << "\n";
+	cout << "  Threads per block: " << GPU.maxThreadsPerBlock << "\n";
+	cout << "  Max block dimensions: [ " << GPU.maxThreadsDim[0] << ", " << GPU.maxThreadsDim[1] << ", " << GPU.maxThreadsDim[2] << " ]" << "\n\n\n\n";
 
-	cout << "Test 1 -matrix multiplication\nTest 2 -memory copy\nTest 3 -float operations\nTest 4 -fibonaci\nTest 5 -image\n" << endl;
+	cout << "Test 1 -matrix multiplication\nTest 2 -memory copy\nTest 3 -aritmetic operations\nTest 4 -fibonaci\nTest 5 -image processing\n" << "\n\n";
 
-	kernelInit << <1, 1024 >> > ();
+	kernelInit <<<1, 1024 >>> ();
+	
 	cudaDeviceSynchronize();
 
 	Settings settings;
@@ -576,44 +594,57 @@ int main()
 	for (int i = 1; i < 6; i++)
 	{
 		printTestNumber("****************************************************\n\nTest "+ to_string(i) + "\n");
-		for (int j = 1; j < settings.repeat+1; j++)
+		for (int j = 1; j < 31; j++)
 		{
 
 			if (i == 1)
 			{
+				if (j > settings.test1repeat) break;
 				printTestNumber(to_string(j) +" : matrix size: "+to_string(settings.test1Base) + "\n");
-				MatrixMultiplication(settings.test1Base);
+				MatrixMultiplication(settings.test1Base, settings.test1blocksize, settings.test1gridsize);
 				settings.test1Base += settings.test1Increment;
+				resetTime();
 			}
 
 			else if (i == 2)
 			{
+				if (j > settings.test2repeat) break;
 				printTestNumber(to_string(j) + " : array of int length : " + to_string(settings.test2Base) + "\n");
-				memoryCopy(settings.test2Base);
-				if (j >= 9) break;
+				memoryCopy(settings.test2Base, settings.test2blocksize);
 				settings.test2Base *= settings.test2Increment;
+				resetTime();
 			}
 
 			else if (i == 3)
 			{
-				if (j > 6) break;
-				IN = settings.test3Base;
-				printTestNumber(to_string(j) + " number of operations: " + to_string(OUT * IN) + "\n");
-				floatComputing();
+				if (j > settings.test3repeat) break;
+				printTestNumber(to_string(j) + " number of operations: " + to_string(10000 * settings.test3Base) + "\n");
+				floatComputing(settings.test3Base, 10000, settings.test3blocksize);
 				settings.test3Base *= settings.test3Increment;
+
+				resetTime();
+			}
+
+			else if (i == 4)
+			{
+				if (j > settings.test4repeat) break;
+				printTestNumber(to_string(j) +" cycles: " + to_string(settings.test4Base)+"\n");
+				fibonaci(settings.test4Base, settings.test4blocksize);
+				settings.test4Base *= settings.test4Increment;
+				resetTime();
 			}
 
 			else if (i == 5)
 			{
-				if (j > 4) break;
+				if (j > settings.test5repeat) break;
 				printTestNumber(to_string(j) + " number of images " + to_string(settings.test5Base) + "\n");
-				processImage(settings.test5Base);
-				if (j >= 9) break;
+				processImage(settings.test5Base, settings.test5blocksize);
 				settings.test5Base *= settings.test5Increment;
+				resetTime();
 			}
-
 		}
 	}
+	
 
 	ofstream resultsFile;
 	resultsFile.open("results.txt");
@@ -651,7 +682,7 @@ int main()
 		}
 		if (input == '3')
 		{
-			floatComputing();
+			floatComputing(10000, 10000);
 		}
 		if (input == '4')
 		{
@@ -664,8 +695,8 @@ int main()
 		{
 			processImage(100);
 		}
-	}*/
-
+	}
+*/
 	cin.get();
 
 	return 0;
